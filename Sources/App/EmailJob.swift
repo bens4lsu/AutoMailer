@@ -50,25 +50,33 @@ struct EmailJob: AsyncScheduledJob {
     }
     
     private func processOneEmail(context: Queues.QueueContext, mailreq: MailQueueModel) async throws {
-        mailreq.status = "W" //working
-        try await mailreq.save(on: context.application.db)
-        
-        
-        var mail = SMTPKitten.Mail(from: SMTPKitten.MailUser(name: mailreq.fromName, email: mailreq.addressFrom),
-                                   to: [SMTPKitten.MailUser(name: mailreq.toName, email: mailreq.addressTo)],
-                                   cc: Set<SMTPKitten.MailUser>(),
-                                   subject: mailreq.subject,
-                                   contentType: mailreq.contentType,
-                                   text: mailreq.body
-                   )
-        
-        #if DEBUG
+        do {
+            mailreq.status = "W" //working
+            try await mailreq.save(on: context.application.db)
+            
+            
+            var mail = SMTPKitten.Mail(from: SMTPKitten.MailUser(name: mailreq.fromName, email: mailreq.addressFrom),
+                                       to: [SMTPKitten.MailUser(name: mailreq.toName, email: mailreq.addressTo)],
+                                       cc: Set<SMTPKitten.MailUser>(),
+                                       subject: mailreq.subject,
+                                       contentType: mailreq.contentType,
+                                       text: mailreq.body
+            )
+            
+#if DEBUG
             mail.to = [SMTPKitten.MailUser(name: "ben@concordbusinessservicesllc.com", email: "ben@concordbusinessservicesllc.com")]
-        #endif
+#endif
+            
+            logger.info("\(Date()) - Send \"\(mailreq.subject) to \(mailreq.addressTo)")
+            try await send(mail)
+            mailreq.status = "C"
+            try await mailreq.save(on: context.application.db)
+        }
+        catch {
+            mailreq.status = "F"
+            try await mailreq.save(on: context.application.db)
+        }
         
-        
-        logger.info("\(Date()) - Send \"\(mailreq.subject) to \(mailreq.addressTo)")
-        try await send(mail)
     }
     
     
