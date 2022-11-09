@@ -11,15 +11,17 @@ import Queues
 import Fluent
 import FluentMySQLDriver
 import QueuesFluentDriver
+import SMTPKitten
+
 
 
 struct EmailJob: AsyncScheduledJob {
 
-    let cmail: ConcordMail
     let logger: Logger
+    let smtp: ConfigurationSettings.Smtp
 
     init(settings: ConfigurationSettings){
-        self.cmail = ConcordMail(configKeys: settings)
+        
         var logger = Logger(label: "email.job.logger")
         logger.logLevel = settings.loggerLogLevel
         
@@ -30,15 +32,16 @@ struct EmailJob: AsyncScheduledJob {
         #endif
         
         self.logger = logger
+        self.smtp = settings.smtp
     }
     
     func run(context: Queues.QueueContext) async throws {
         logger.debug("\(Date()) - Begin email job run.")
         let queue = try await MailQueueModel.query(on: context.application.db).filter(\.$status == "P").all()
-        await withThrowingTaskGroup(of: ConcordMail.Result.self) { taskGroup in
+        await withThrowingTaskGroup(of: Void.self) { taskGroup in
             for mailreq in queue {
                 taskGroup.addTask {
-                    return try await sendOneEmail(db: context.application.db, mailreq: mailreq)
+                    try await processOneEmail(context: context, mailreq: mailreq)
                 }
             }
         }
@@ -46,35 +49,36 @@ struct EmailJob: AsyncScheduledJob {
             
     }
     
-    private func sendOneEmail(db: Database, mailreq: MailQueueModel) async throws -> ConcordMail.Result {
+    private func processOneEmail(context: Queues.QueueContext, mailreq: MailQueueModel) async throws {
         mailreq.status = "W" //working
-        try await mailreq.save(on: db)
-        var mail = ConcordMail.Mail(
-            from: ConcordMail.Mail.User(name: mailreq.fromName, email: mailreq.addressFrom),
-            to: ConcordMail.Mail.User(name: mailreq.fromName, email: mailreq.addressFrom),
-            subject: mailreq.subject,
-            contentType: mailreq.contentType,
-            text: mailreq.body
-        )
+        try await mailreq.save(on: context.application.db)
+        
+        
+        var mail = SMTPKitten.Mail(from: SMTPKitten.MailUser(name: mailreq.fromName, email: mailreq.addressFrom),
+                                   to: [SMTPKitten.MailUser(name: mailreq.toName, email: mailreq.addressTo)],
+                                   cc: Set<SMTPKitten.MailUser>(),
+                                   subject: mailreq.subject,
+                                   contentType: mailreq.contentType,
+                                   text: mailreq.body
+                   )
         
         #if DEBUG
-            mail.to = ConcordMail.Mail.User(name: "ben@concordbusinessservicesllc.com", email: "ben@concordbusinessservicesllc.com")
+            mail.to = [SMTPKitten.MailUser(name: "ben@concordbusinessservicesllc.com", email: "ben@concordbusinessservicesllc.com")]
         #endif
         
         
         logger.info("\(Date()) - Send \"\(mailreq.subject) to \(mailreq.addressTo)")
-        let result = try await cmail.send(mail: mail)
-        switch result {
-        case .success:
-            mailreq.status = "C"
-            break
-        case .failure(let err):
-            mailreq.status = "F"
-            logger.error("\(Date()) - Mail send error: \(err)")
-        }
-        mailreq.statusDate = Date()
-        try await mailreq.save(on: db)
-        return result
-        
+        try await send(mail)
+    }
+    
+    
+    private func send(_ mail: SMTPKitten.Mail) async throws  {
+        let client = try await SMTPClient.connect(hostname: smtp.hostname, ssl: .startTLS(configuration: .default)).get()
+        logger.debug("Starting SMTP login.")
+        try await client.login(user: smtp.username,password: smtp.password).get()
+        logger.debug("Starting SMTP send.")
+        try await client.sendMail(mail).get()
+        logger.debug("SMTP send complete.")
+
     }
 }

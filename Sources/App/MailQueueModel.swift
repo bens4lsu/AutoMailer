@@ -8,6 +8,7 @@
 import Foundation
 import Fluent
 import FluentMySQLDriver
+import SMTPKitten
 
 class MailQueueModel: Model {
     typealias IDValue = Int
@@ -47,7 +48,7 @@ class MailQueueModel: Model {
     @Field(key: "StatusDate")
     var statusDate: Date
     
-    var contentType: ConcordMail.ContentType {
+    var contentType: SMTPKitten.Mail.ContentType {
         if self.plainOrHtml == "H" {
             return .html
         }
