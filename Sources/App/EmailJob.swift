@@ -19,6 +19,7 @@ struct EmailJob: AsyncScheduledJob {
 
     let logger: Logger
     let smtp: ConfigurationSettings.Smtp
+    let maxConcurrentEmailTasks: Int
 
     init(settings: ConfigurationSettings){
         
@@ -33,16 +34,26 @@ struct EmailJob: AsyncScheduledJob {
         
         self.logger = logger
         self.smtp = settings.smtp
+        self.maxConcurrentEmailTasks = settings.maxConcurrentEmailTasks
     }
     
     func run(context: Queues.QueueContext) async throws {
         logger.debug("\(Date()) - Begin email job run.")
-        let queue = try await MailQueueModel.query(on: context.application.db).filter(\.$status == "P").all()
-        await withThrowingTaskGroup(of: Void.self) { taskGroup in
-            for mailreq in queue {
-                taskGroup.addTask {
-                    try await processOneEmail(context: context, mailreq: mailreq)
+        var queue = try await MailQueueModel.query(on: context.application.db).filter(\.$status == "P").all()
+        while !queue.isEmpty {
+            var chunk = queue
+            if chunk.count > maxConcurrentEmailTasks {
+                chunk.removeSubrange(maxConcurrentEmailTasks..<chunk.count)
+            }
+            await withThrowingTaskGroup(of: Void.self) { taskGroup in
+                for mailreq in chunk {
+                    taskGroup.addTask {
+                        try await processOneEmail(context: context, mailreq: mailreq)
+                    }
                 }
+            }
+            queue = queue.filter{row in
+                !chunk.map{$0.id}.contains(row.id)
             }
         }
         logger.debug ("\(Date()) - Completed email job run.")
@@ -63,17 +74,19 @@ struct EmailJob: AsyncScheduledJob {
                                        text: mailreq.body
             )
             
-#if DEBUG
+            #if DEBUG
             mail.to = [SMTPKitten.MailUser(name: "ben@concordbusinessservicesllc.com", email: "ben@concordbusinessservicesllc.com")]
-#endif
+            #endif
             
             logger.info("\(Date()) - Send \"\(mailreq.subject) to \(mailreq.addressTo)")
             try await send(mail)
             mailreq.status = "C"
+            mailreq.statusDate = Date()
             try await mailreq.save(on: context.application.db)
         }
         catch {
             mailreq.status = "F"
+            mailreq.statusDate = Date()
             try await mailreq.save(on: context.application.db)
         }
         
