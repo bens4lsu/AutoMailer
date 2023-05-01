@@ -75,7 +75,7 @@ struct EmailJob: AsyncScheduledJob {
             )
             
             #if DEBUG
-            mail.to = [SMTPKitten.MailUser(name: "ben@concordbusinessservicesllc.com", email: "ben@concordbusinessservicesllc.com")]
+            mail.to = [SMTPKitten.MailUser(name: mailreq.toName, email: "ben@concordbusinessservicesllc.com")]
             #endif
             
             logger.info("\(Date()) - Send \"\(mailreq.subject) to \(mailreq.addressTo)")
@@ -84,9 +84,10 @@ struct EmailJob: AsyncScheduledJob {
             mailreq.statusDate = Date()
             try await mailreq.save(on: context.application.db)
         }
-        catch {
+        catch(let error) {
             mailreq.status = "F"
             mailreq.statusDate = Date()
+            logger.error("\(error)")
             try await mailreq.save(on: context.application.db)
         }
         
