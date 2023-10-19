@@ -30,7 +30,8 @@ class ConfigurationSettings: Decodable {
     let database: ConfigurationSettings.Database
     let smtp: ConfigurationSettings.Smtp
     let logLevel: String
-    let maxConcurrentEmailTasks: Int
+    //let maxConcurrentEmailTasks: Int
+    let timesToRetry: Int
     
     
     var certificateVerification: CertificateVerification {
@@ -56,7 +57,8 @@ class ConfigurationSettings: Decodable {
             self.database = decoder.database
             self.smtp = decoder.smtp
             self.logLevel = decoder.logLevel
-            self.maxConcurrentEmailTasks = decoder.maxConcurrentEmailTasks
+            //self.maxConcurrentEmailTasks = decoder.maxConcurrentEmailTasks
+            self.timesToRetry = decoder.timesToRetry
         }
         catch {
             print ("Could not initialize app from Config.json. \n \(error)")

@@ -34,11 +34,14 @@ public func configure(_ app: Application) throws {
     app.migrations.add(JobMetadataMigrate())
     
     let emailJob = EmailJob(settings: settings)
+    let retryJob = RetryJob(settings: settings)
     
     // not running in-app
     // use 'swift run Run queues' from terminal
 
     app.queues.schedule(emailJob).minutely().at(5)   // doesn't run without the .at()
+    app.queues.schedule(retryJob).hourly().at(01)
+    app.queues.schedule(retryJob).hourly().at(31)
     try app.queues.startScheduledJobs()
 
     try routes(app)

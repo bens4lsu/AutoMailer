@@ -48,12 +48,15 @@ class MailQueueModel: Model {
     @Field(key: "StatusDate")
     var statusDate: Date
     
-    var contentType: SMTPKitten.Mail.ContentType {
+    @Field(key: "RetryCount")
+    var retryCount: Int
+    
+    var content: (String) -> Mail.Content {
         if self.plainOrHtml == "H" {
-            return .html
+            return Mail.Content.html
         }
         else {
-            return .plain
+            return Mail.Content.plain
         }
     }
     

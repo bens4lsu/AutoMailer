@@ -19,7 +19,7 @@ struct EmailJob: AsyncScheduledJob {
 
     let logger: Logger
     let smtp: ConfigurationSettings.Smtp
-    let maxConcurrentEmailTasks: Int
+    //let maxConcurrentEmailTasks: Int
 
     init(settings: ConfigurationSettings){
         
@@ -34,28 +34,17 @@ struct EmailJob: AsyncScheduledJob {
         
         self.logger = logger
         self.smtp = settings.smtp
-        self.maxConcurrentEmailTasks = settings.maxConcurrentEmailTasks
+        //self.maxConcurrentEmailTasks = settings.maxConcurrentEmailTasks
     }
     
     func run(context: Queues.QueueContext) async throws {
         logger.debug("\(Date()) - Begin email job run.")
-        var queue = try await MailQueueModel.query(on: context.application.db).filter(\.$status == "P").all()
-        while !queue.isEmpty {
-            var chunk = queue
-            if chunk.count > maxConcurrentEmailTasks {
-                chunk.removeSubrange(maxConcurrentEmailTasks..<chunk.count)
-            }
-            await withThrowingTaskGroup(of: Void.self) { taskGroup in
-                for mailreq in chunk {
-                    taskGroup.addTask {
-                        try await processOneEmail(context: context, mailreq: mailreq)
-                    }
-                }
-            }
-            queue = queue.filter{row in
-                !chunk.map{$0.id}.contains(row.id)
-            }
+        let queue = try await MailQueueModel.query(on: context.application.db).filter(\.$status == "P").all()
+        
+        for mailreq in queue {
+            try await processOneEmail(context: context, mailreq: mailreq)
         }
+        
         logger.debug ("\(Date()) - Completed email job run.")
             
     }
@@ -70,8 +59,7 @@ struct EmailJob: AsyncScheduledJob {
                                        to: [SMTPKitten.MailUser(name: mailreq.toName, email: mailreq.addressTo)],
                                        cc: Set<SMTPKitten.MailUser>(),
                                        subject: mailreq.subject,
-                                       contentType: mailreq.contentType,
-                                       text: mailreq.body
+                                       content: mailreq.content(mailreq.body)
             )
             
             #if DEBUG
@@ -82,6 +70,7 @@ struct EmailJob: AsyncScheduledJob {
             try await send(mail)
             mailreq.status = "C"
             mailreq.statusDate = Date()
+            mailreq.retryCount = 0
             try await mailreq.save(on: context.application.db)
         }
         catch(let error) {
@@ -95,11 +84,11 @@ struct EmailJob: AsyncScheduledJob {
     
     
     private func send(_ mail: SMTPKitten.Mail) async throws  {
-        let client = try await SMTPClient.connect(hostname: smtp.hostname, ssl: .startTLS(configuration: .default)).get()
+        let client = try await SMTPClient.connect(hostname: smtp.hostname, ssl: .startTLS(configuration: .default))
         logger.debug("Starting SMTP login.")
-        try await client.login(user: smtp.username,password: smtp.password).get()
+        try await client.login(user: smtp.username,password: smtp.password)
         logger.debug("Starting SMTP send.")
-        try await client.sendMail(mail).get()
+        try await client.sendMail(mail)
         logger.debug("SMTP send complete.")
 
     }
