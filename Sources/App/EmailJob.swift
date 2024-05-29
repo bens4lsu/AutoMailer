@@ -85,8 +85,8 @@ struct EmailJob: AsyncScheduledJob {
     
     private func send(_ mail: SMTPKitten.Mail) async throws  {
         let client = try await SMTPClient.connect(hostname: smtp.hostname, ssl: .startTLS(configuration: .default))
-        logger.debug("Starting SMTP login.")
-        try await client.login(user: smtp.username,password: smtp.password)
+        logger.debug("Starting SMTP login.  host: \(smtp.hostname)    user: \(smtp.username)")
+        try await client.login(user: smtp.username, password: smtp.password)
         logger.debug("Starting SMTP send.")
         try await client.sendMail(mail)
         logger.debug("SMTP send complete.")
